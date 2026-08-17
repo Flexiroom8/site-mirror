@@ -1,6 +1,6 @@
-# [Project name]
+# Site Mirror
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Site Mirror creates downloadable, same-origin website archives for sites the user owns or has explicit permission to copy.
 
 ## Run & Operate
 
@@ -22,15 +22,22 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/site-mirror/` — React interface for creating and monitoring mirror jobs
+- `artifacts/api-server/src/lib/mirror-jobs.ts` — crawl, progress, cancellation, and ZIP archive service
+- `artifacts/api-server/src/routes/mirror.ts` — mirror job API routes
+- `lib/api-spec/openapi.yaml` — source of truth for the mirror API contract
+- `lib/api-client-react/` and `lib/api-zod/` — generated client hooks and validation schemas
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Crawls are same-origin only and deliberately do not attempt login, anti-bot, or protected-content bypasses.
+- Jobs are kept in memory and written to a temporary directory for the current server process; ZIPs are generated on demand.
+- Robots-aware crawling and a configurable request delay are enabled by default.
+- Public URL validation rejects localhost, private IPs, and embedded URL credentials to reduce SSRF risk.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Users can configure a permitted archive, set a page ceiling and delay, watch live crawl progress, stop a running job, and download a completed ZIP mirror.
 
 ## User preferences
 
@@ -38,7 +45,8 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Run API codegen after changing `lib/api-spec/openapi.yaml`.
+- Mirror jobs are process-local and temporary; a restart clears active jobs and archives.
 
 ## Pointers
 
