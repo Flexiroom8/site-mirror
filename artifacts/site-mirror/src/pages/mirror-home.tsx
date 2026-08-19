@@ -30,7 +30,7 @@ import {
 
 const defaultForm: Required<MirrorJobInput> = {
   url: '',
-  maxPages: 25,
+  maxPages: 100,
   requestDelayMs: 250,
   respectRobotsTxt: true,
 };
@@ -112,7 +112,7 @@ export default function MirrorHome() {
   const createJob = useCreateMirrorJob();
   const latestJob = latestQuery.data;
   const createError = createJob.error as { error?: string } | null;
-  const formReady = useMemo(() => form.url.trim().length > 0 && form.maxPages >= 1 && form.requestDelayMs >= 0, [form]);
+  const formReady = useMemo(() => form.url.trim().length > 0 && form.maxPages >= 1 && form.maxPages <= 1000 && form.requestDelayMs >= 0, [form]);
 
   useEffect(() => {
     document.title = 'New mirror · Site Mirror';
@@ -126,7 +126,7 @@ export default function MirrorHome() {
     let parsed: URL;
     try { parsed = new URL(form.url.trim()); } catch { setValidationError('Enter a complete website address, including https://.'); return; }
     if (!['http:', 'https:'].includes(parsed.protocol)) { setValidationError('Only HTTP and HTTPS websites can be mirrored.'); return; }
-    if (!formReady) { setValidationError('Check the page limit and request delay before starting.'); return; }
+    if (!formReady) { setValidationError('Check the page limit (1–1,000) and request delay before starting.'); return; }
     createJob.mutate({ data: { ...form, url: parsed.toString() } }, {
       onSuccess: (job) => {
         try { window.localStorage.setItem('site-mirror:last-job', job.id); } catch { /* storage can be unavailable */ }

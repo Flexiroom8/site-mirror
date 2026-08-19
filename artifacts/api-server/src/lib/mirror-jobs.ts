@@ -33,6 +33,7 @@ export type MirrorJobRecord = {
   outputDir: string;
   cancelRequested: boolean;
   browser: Browser | null;
+  downloadedAssets: Set<string>;
 };
 
 const jobs = new Map<string, MirrorJobRecord>();
@@ -205,6 +206,7 @@ async function downloadAsset(
   job: MirrorJobRecord,
   assetUrl: string,
 ): Promise<void> {
+  if (job.downloadedAssets.has(assetUrl)) return;
   const response = await fetch(assetUrl, {
     signal: AbortSignal.timeout(20_000),
     redirect: "follow",
@@ -213,6 +215,7 @@ async function downloadAsset(
   if (!response.ok) return;
   const body = new Uint8Array(await response.arrayBuffer());
   await writeFileForUrl(job.outputDir, assetUrl, body);
+  job.downloadedAssets.add(assetUrl);
   job.assetsDownloaded += 1;
   job.bytesDownloaded += body.byteLength;
 }
@@ -254,7 +257,8 @@ async function runJob(job: MirrorJobRecord): Promise<void> {
         if (job.requestDelayMs > 0) await sleep(job.requestDelayMs);
 
         const resources = await page.evaluate(() => {
-          const values = new Set<string>();
+          const links = new Set<string>();
+          const assets = new Set<string>();
           const pageDocument = (
             globalThis as unknown as {
               document: {
@@ -270,19 +274,24 @@ async function runJob(job: MirrorJobRecord): Promise<void> {
               };
             }
           ).document;
-          const elements = pageDocument.querySelectorAll(
-            "a[href], link[href], img[src], script[src], source[src], video[src], audio[src], iframe[src]",
+          const linkElements = pageDocument.querySelectorAll("a[href]");
+          linkElements.forEach((element) => {
+            const value = element.getAttribute("href");
+            if (value) links.add(value);
+          });
+          const assetElements = pageDocument.querySelectorAll(
+            "link[href], img[src], script[src], source[src], video[src], audio[src], iframe[src]",
           );
-          elements.forEach((element) => {
+          assetElements.forEach((element) => {
             const value =
               element.getAttribute("href") ??
               element.getAttribute("src") ??
               element.getAttribute("data-src");
-            if (value) values.add(value);
+            if (value) assets.add(value);
           });
-          return [...values];
+          return { links: [...links], assets: [...assets] };
         });
-        const normalizedResources = resources
+        const normalizeResources = (values: string[]) => values
           .map((value) => {
             try {
               const parsed = new URL(value, current);
@@ -294,10 +303,12 @@ async function runJob(job: MirrorJobRecord): Promise<void> {
           })
           .filter((value): value is string => Boolean(value));
 
-        const internalPages = normalizedResources.filter((value) => {
+        const normalizedLinks = normalizeResources(resources.links);
+        const normalizedAssets = normalizeResources(resources.assets);
+        const internalPages = normalizedLinks.filter((value) => {
           try {
             const parsed = new URL(value);
-            return sameOrigin(parsed, origin) && !path.extname(parsed.pathname);
+            return sameOrigin(parsed, origin);
           } catch {
             return false;
           }
@@ -309,7 +320,7 @@ async function runJob(job: MirrorJobRecord): Promise<void> {
         }
         job.pagesFound = Math.max(job.pagesFound, seen.size + queue.length);
 
-        const assetUrls = normalizedResources.filter((value) => {
+        const assetUrls = normalizedAssets.filter((value) => {
           try {
             const parsed = new URL(value);
             return sameOrigin(parsed, origin) && shouldSaveResource(parsed);
@@ -374,6 +385,7 @@ export async function createMirrorJob(input: {
     outputDir,
     cancelRequested: false,
     browser: null,
+    downloadedAssets: new Set<string>(),
   };
   jobs.set(id, job);
   void (async () => {
