@@ -14,7 +14,7 @@ export interface MirrorJobInput {
   url: string;
   /**
      * @minimum 1
-     * @maximum 100
+     * @maximum 1000
      */
   maxPages?: number;
   /**

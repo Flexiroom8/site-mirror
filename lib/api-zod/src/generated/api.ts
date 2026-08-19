@@ -21,8 +21,8 @@ export const HealthCheckResponse = zod.object({
  * Begins a same-origin crawl for a website the caller owns or is authorized to archive.
  * @summary Start an authorized website mirror job
  */
-export const createMirrorJobBodyMaxPagesDefault = 25;
-export const createMirrorJobBodyMaxPagesMax = 100;
+export const createMirrorJobBodyMaxPagesDefault = 100;
+export const createMirrorJobBodyMaxPagesMax = 1000;
 export const createMirrorJobBodyMaxPagesMultipleOf = 1;
 
 export const createMirrorJobBodyRequestDelayMsDefault = 250;
