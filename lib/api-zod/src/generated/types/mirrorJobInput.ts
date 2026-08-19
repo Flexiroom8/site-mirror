@@ -20,4 +20,21 @@ export interface MirrorJobInput {
      */
   requestDelayMs?: number;
   respectRobotsTxt?: boolean;
+  /**
+     * @minimum 0
+     * @maximum 10
+     */
+  maxDepth?: number;
+  includeAssets?: boolean;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  pathPrefix?: string;
+  /**
+     * @maxItems 10
+     * @items.minLength 1
+     * @items.maxLength 200
+     */
+  excludePaths?: string[];
 }

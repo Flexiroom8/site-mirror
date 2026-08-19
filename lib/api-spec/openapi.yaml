@@ -156,6 +156,27 @@ components:
         respectRobotsTxt:
           type: boolean
           default: true
+        maxDepth:
+          type: number
+          multipleOf: 1
+          minimum: 0
+          maximum: 10
+          default: 3
+        includeAssets:
+          type: boolean
+          default: true
+        pathPrefix:
+          type: string
+          minLength: 1
+          maxLength: 200
+          default: /
+        excludePaths:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
       required:
         - url
     MirrorJob:
@@ -188,6 +209,17 @@ components:
           multipleOf: 1
         respectRobotsTxt:
           type: boolean
+        maxDepth:
+          type: number
+          multipleOf: 1
+        includeAssets:
+          type: boolean
+        pathPrefix:
+          type: string
+        excludePaths:
+          type: array
+          items:
+            type: string
         currentUrl:
           type: ["string", "null"]
         message:

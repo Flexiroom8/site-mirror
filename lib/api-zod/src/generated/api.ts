@@ -31,12 +31,30 @@ export const createMirrorJobBodyRequestDelayMsMax = 5000;
 export const createMirrorJobBodyRequestDelayMsMultipleOf = 1;
 
 export const createMirrorJobBodyRespectRobotsTxtDefault = true;
+export const createMirrorJobBodyMaxDepthDefault = 3;
+export const createMirrorJobBodyMaxDepthMin = 0;
+export const createMirrorJobBodyMaxDepthMax = 10;
+export const createMirrorJobBodyMaxDepthMultipleOf = 1;
+
+export const createMirrorJobBodyIncludeAssetsDefault = true;
+export const createMirrorJobBodyPathPrefixDefault = `/`;
+export const createMirrorJobBodyPathPrefixMax = 200;
+
+export const createMirrorJobBodyExcludePathsItemMax = 200;
+
+export const createMirrorJobBodyExcludePathsMax = 10;
+
+
 
 export const CreateMirrorJobBody = zod.object({
   "url": zod.string().describe('HTTPS or HTTP URL for a site the caller owns or is authorized to archive'),
   "maxPages": zod.number().min(1).max(createMirrorJobBodyMaxPagesMax).multipleOf(createMirrorJobBodyMaxPagesMultipleOf).default(createMirrorJobBodyMaxPagesDefault),
   "requestDelayMs": zod.number().min(createMirrorJobBodyRequestDelayMsMin).max(createMirrorJobBodyRequestDelayMsMax).multipleOf(createMirrorJobBodyRequestDelayMsMultipleOf).default(createMirrorJobBodyRequestDelayMsDefault),
-  "respectRobotsTxt": zod.boolean().default(createMirrorJobBodyRespectRobotsTxtDefault)
+  "respectRobotsTxt": zod.boolean().default(createMirrorJobBodyRespectRobotsTxtDefault),
+  "maxDepth": zod.number().min(createMirrorJobBodyMaxDepthMin).max(createMirrorJobBodyMaxDepthMax).multipleOf(createMirrorJobBodyMaxDepthMultipleOf).default(createMirrorJobBodyMaxDepthDefault),
+  "includeAssets": zod.boolean().default(createMirrorJobBodyIncludeAssetsDefault),
+  "pathPrefix": zod.string().min(1).max(createMirrorJobBodyPathPrefixMax).default(createMirrorJobBodyPathPrefixDefault),
+  "excludePaths": zod.array(zod.string().min(1).max(createMirrorJobBodyExcludePathsItemMax)).max(createMirrorJobBodyExcludePathsMax).optional()
 })
 
 export const createMirrorJobResponsePagesFoundMultipleOf = 1;
@@ -51,6 +69,8 @@ export const createMirrorJobResponseMaxPagesMultipleOf = 1;
 
 export const createMirrorJobResponseRequestDelayMsMultipleOf = 1;
 
+export const createMirrorJobResponseMaxDepthMultipleOf = 1;
+
 
 
 export const CreateMirrorJobResponse = zod.object({
@@ -64,6 +84,10 @@ export const CreateMirrorJobResponse = zod.object({
   "maxPages": zod.number().multipleOf(createMirrorJobResponseMaxPagesMultipleOf),
   "requestDelayMs": zod.number().multipleOf(createMirrorJobResponseRequestDelayMsMultipleOf),
   "respectRobotsTxt": zod.boolean(),
+  "maxDepth": zod.number().multipleOf(createMirrorJobResponseMaxDepthMultipleOf).optional(),
+  "includeAssets": zod.boolean().optional(),
+  "pathPrefix": zod.string().optional(),
+  "excludePaths": zod.array(zod.string()).optional(),
   "currentUrl": zod.string().nullable(),
   "message": zod.string().nullable(),
   "createdAt": zod.coerce.date(),
@@ -93,6 +117,8 @@ export const getMirrorJobResponseMaxPagesMultipleOf = 1;
 
 export const getMirrorJobResponseRequestDelayMsMultipleOf = 1;
 
+export const getMirrorJobResponseMaxDepthMultipleOf = 1;
+
 
 
 export const GetMirrorJobResponse = zod.object({
@@ -106,6 +132,10 @@ export const GetMirrorJobResponse = zod.object({
   "maxPages": zod.number().multipleOf(getMirrorJobResponseMaxPagesMultipleOf),
   "requestDelayMs": zod.number().multipleOf(getMirrorJobResponseRequestDelayMsMultipleOf),
   "respectRobotsTxt": zod.boolean(),
+  "maxDepth": zod.number().multipleOf(getMirrorJobResponseMaxDepthMultipleOf).optional(),
+  "includeAssets": zod.boolean().optional(),
+  "pathPrefix": zod.string().optional(),
+  "excludePaths": zod.array(zod.string()).optional(),
   "currentUrl": zod.string().nullable(),
   "message": zod.string().nullable(),
   "createdAt": zod.coerce.date(),
@@ -135,6 +165,8 @@ export const cancelMirrorJobResponseMaxPagesMultipleOf = 1;
 
 export const cancelMirrorJobResponseRequestDelayMsMultipleOf = 1;
 
+export const cancelMirrorJobResponseMaxDepthMultipleOf = 1;
+
 
 
 export const CancelMirrorJobResponse = zod.object({
@@ -148,6 +180,10 @@ export const CancelMirrorJobResponse = zod.object({
   "maxPages": zod.number().multipleOf(cancelMirrorJobResponseMaxPagesMultipleOf),
   "requestDelayMs": zod.number().multipleOf(cancelMirrorJobResponseRequestDelayMsMultipleOf),
   "respectRobotsTxt": zod.boolean(),
+  "maxDepth": zod.number().multipleOf(cancelMirrorJobResponseMaxDepthMultipleOf).optional(),
+  "includeAssets": zod.boolean().optional(),
+  "pathPrefix": zod.string().optional(),
+  "excludePaths": zod.array(zod.string()).optional(),
   "currentUrl": zod.string().nullable(),
   "message": zod.string().nullable(),
   "createdAt": zod.coerce.date(),

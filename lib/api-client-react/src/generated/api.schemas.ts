@@ -23,6 +23,23 @@ export interface MirrorJobInput {
      */
   requestDelayMs?: number;
   respectRobotsTxt?: boolean;
+  /**
+     * @minimum 0
+     * @maximum 10
+     */
+  maxDepth?: number;
+  includeAssets?: boolean;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  pathPrefix?: string;
+  /**
+     * @maxItems 10
+     * @items.minLength 1
+     * @items.maxLength 200
+     */
+  excludePaths?: string[];
 }
 
 export type MirrorJobStatus = typeof MirrorJobStatus[keyof typeof MirrorJobStatus];
@@ -47,6 +64,10 @@ export interface MirrorJob {
   maxPages: number;
   requestDelayMs: number;
   respectRobotsTxt: boolean;
+  maxDepth?: number;
+  includeAssets?: boolean;
+  pathPrefix?: string;
+  excludePaths?: string[];
   /** @nullable */
   currentUrl: string | null;
   /** @nullable */

@@ -18,6 +18,10 @@ export interface MirrorJob {
   maxPages: number;
   requestDelayMs: number;
   respectRobotsTxt: boolean;
+  maxDepth?: number;
+  includeAssets?: boolean;
+  pathPrefix?: string;
+  excludePaths?: string[];
   /** @nullable */
   currentUrl: string | null;
   /** @nullable */
