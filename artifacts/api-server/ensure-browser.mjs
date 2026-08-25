@@ -1,122 +1,231 @@
-import { access, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
-import { spawnSync } from "node:child_process";
-import puppeteer from "puppeteer";
+```js
+#!/usr/bin/env node
 
-const executablePath = puppeteer.executablePath();
+import fs from "node:fs";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
+import puppeteer from "puppeteer";
 
 console.log("");
 console.log("==============================================");
 console.log(" Puppeteer Chrome Verification");
 console.log("==============================================");
-console.log(`Chrome executable: ${executablePath}`);
 console.log("");
 
-async function chromeExists() {
+function fileExists(file) {
   try {
-    await access(executablePath);
-    return true;
+    return fs.existsSync(file) && fs.statSync(file).isFile();
   } catch {
     return false;
   }
 }
 
-async function installChrome() {
-  console.log("Chrome was not found.");
-  console.log("Installing the Chrome revision required by Puppeteer...");
-  console.log("");
+function directoryExists(dir) {
+  try {
+    return fs.existsSync(dir) && fs.statSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
+}
 
-  await mkdir(dirname(executablePath), {
-    recursive: true,
-  }).catch(() => {});
+function getChromePath() {
+  try {
+    const executable = puppeteer.executablePath();
 
-  const commands = [
-    {
-      command: "pnpm",
-      args: [
-        "exec",
-        "puppeteer",
-        "browsers",
-        "install",
-        "chrome"
-      ]
-    },
-    {
-      command: "npx",
-      args: [
-        "puppeteer",
-        "browsers",
-        "install",
-        "chrome"
-      ]
+    if (executable && fileExists(executable)) {
+      return executable;
     }
-  ];
 
-  for (const attempt of commands) {
-    console.log(
-      `Running: ${attempt.command} ${attempt.args.join(" ")}`
+    return executable || null;
+  } catch (error) {
+    console.log(`Unable to determine Puppeteer executable: ${error.message}`);
+    return null;
+  }
+}
+
+function removeBrokenCache() {
+  const cacheDirectories = new Set();
+
+  /*
+   * Puppeteer normally uses ~/.cache/puppeteer in Linux.
+   *
+   * Some deployment environments expose HOME as /home/runner,
+   * while this project may also have a local .cache directory.
+   */
+  if (process.env.PUPPETEER_CACHE_DIR) {
+    cacheDirectories.add(
+      path.resolve(process.env.PUPPETEER_CACHE_DIR)
     );
+  }
 
-    const result = spawnSync(
-      attempt.command,
-      attempt.args,
-      {
-        stdio: "inherit",
-        env: {
-          ...process.env,
-          PUPPETEER_SKIP_DOWNLOAD: "false"
-        }
-      }
+  if (process.env.HOME) {
+    cacheDirectories.add(
+      path.join(process.env.HOME, ".cache", "puppeteer")
     );
+  }
 
-    if (result.error) {
-      console.warn(
-        `${attempt.command} could not be executed:`,
-        result.error.message
-      );
+  cacheDirectories.add(
+    path.resolve(".cache", "puppeteer")
+  );
+
+  for (const cacheDir of cacheDirectories) {
+    if (!directoryExists(cacheDir)) {
       continue;
     }
 
-    if (result.status === 0) {
-      if (await chromeExists()) {
-        console.log("");
-        console.log("Chrome installed successfully.");
-        return true;
-      }
+    console.log(`Removing Puppeteer cache: ${cacheDir}`);
+
+    try {
+      fs.rmSync(cacheDir, {
+        recursive: true,
+        force: true,
+      });
+
+      console.log(`Removed: ${cacheDir}`);
+    } catch (error) {
+      console.log(
+        `Warning: unable to completely remove ${cacheDir}: ${error.message}`
+      );
     }
   }
 
-  return false;
-}
-
-if (await chromeExists()) {
-  console.log("Chrome is already installed.");
   console.log("");
-  process.exit(0);
 }
 
-const installed = await installChrome();
+function installChrome() {
+  console.log("Installing Puppeteer's Chrome browser...");
+  console.log("");
 
-if (!installed) {
-  console.error("");
-  console.error("==============================================");
-  console.error(" ERROR: Puppeteer Chrome is unavailable");
-  console.error("==============================================");
-  console.error("");
-  console.error(`Expected Chrome at: ${executablePath}`);
-  console.error("");
-  console.error(
-    "Try manually running:"
+  /*
+   * Use the Puppeteer package installed by this workspace.
+   * Do NOT use `npx` because it can resolve a different Puppeteer version.
+   */
+  execFileSync(
+    "pnpm",
+    [
+      "exec",
+      "puppeteer",
+      "browsers",
+      "install",
+      "chrome",
+    ],
+    {
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        PUPPETEER_SKIP_DOWNLOAD: "false",
+      },
+    }
   );
-  console.error("");
-  console.error(
-    "pnpm exec puppeteer browsers install chrome"
-  );
-  console.error("");
-
-  process.exit(1);
 }
 
-console.log("");
-console.log("Puppeteer browser check complete.");
-console.log("");
+function verifyChrome() {
+  const executable = getChromePath();
+
+  if (!executable) {
+    throw new Error(
+      "Puppeteer did not return a Chrome executable path."
+    );
+  }
+
+  console.log(`Expected Chrome executable: ${executable}`);
+  console.log("");
+
+  if (!fileExists(executable)) {
+    throw new Error(
+      `Chrome executable does not exist:\n${executable}`
+    );
+  }
+
+  try {
+    fs.accessSync(executable, fs.constants.X_OK);
+  } catch {
+    console.log(
+      "Chrome exists but is not executable. Attempting to fix permissions..."
+    );
+
+    try {
+      fs.chmodSync(executable, 0o755);
+    } catch (error) {
+      throw new Error(
+        `Chrome exists but could not be made executable: ${error.message}`
+      );
+    }
+  }
+
+  return executable;
+}
+
+async function main() {
+  console.log(`Puppeteer version: ${puppeteer.version()}`);
+
+  let executable = getChromePath();
+
+  if (executable && fileExists(executable)) {
+    console.log(`Chrome executable: ${executable}`);
+    console.log("");
+    console.log("Chrome is already installed.");
+    console.log("");
+    console.log("==============================================");
+    console.log(" Puppeteer Chrome: READY");
+    console.log("==============================================");
+    console.log("");
+
+    return;
+  }
+
+  console.log(
+    `Chrome is unavailable at the Puppeteer path: ${executable || "unknown"}`
+  );
+
+  console.log("");
+  console.log(
+    "A previous deployment may have left an incomplete Puppeteer cache."
+  );
+  console.log("Cleaning the cache before reinstalling...");
+  console.log("");
+
+  removeBrokenCache();
+
+  try {
+    installChrome();
+  } catch (error) {
+    console.error("");
+    console.error("Chrome installation failed.");
+    console.error("");
+    console.error(error?.stack || error);
+    console.error("");
+
+    process.exit(1);
+  }
+
+  console.log("");
+  console.log("Verifying Chrome installation...");
+  console.log("");
+
+  try {
+    executable = verifyChrome();
+  } catch (error) {
+    console.error("");
+    console.error("==============================================");
+    console.error(" ERROR: Puppeteer Chrome is unavailable");
+    console.error("==============================================");
+    console.error("");
+    console.error(error?.stack || error);
+    console.error("");
+
+    process.exit(1);
+  }
+
+  console.log(`Chrome executable: ${executable}`);
+  console.log("");
+  console.log("Chrome installation verified successfully.");
+  console.log("");
+  console.log("==============================================");
+  console.log(" Puppeteer Chrome: READY");
+  console.log("==============================================");
+  console.log("");
+}
+
+await main();
+```
