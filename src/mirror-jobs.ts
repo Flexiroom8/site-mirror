@@ -431,19 +431,65 @@ async function runJob(job: MirrorJobRecord): Promise<void> {
 
   // ---- Find Chromium on Replit ----
   let chromiumPath: string | undefined;
+
   try {
-    const { stdout } = await promisify(exec)("which chromium");
-    chromiumPath = stdout.trim();
-    if (chromiumPath) logger.debug({ chromiumPath }, "Using Chromium from system path");
-  } catch {
-    logger.warn("Could not locate chromium via `which chromium`; Puppeteer will try its own download.");
+    // Try `which chromium` first
+    const { stdout } = await promisify(exec)("which chromium 2>/dev/null || which chromium-browser 2>/dev/null || true");
+    const path = stdout.trim();
+    if (path) {
+      chromiumPath = path;
+      logger.info({ chromiumPath }, "Found Chromium via which command");
+    }
+  } catch (error) {
+    logger.debug({ error }, "which chromium failed");
+  }
+
+  // If not found, try common locations
+  if (!chromiumPath) {
+    const commonPaths = [
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+      '/nix/store/*/bin/chromium',
+    ];
+    for (const p of commonPaths) {
+      try {
+        // Use `find` to resolve wildcard paths
+        if (p.includes('*')) {
+          const { stdout } = await promisify(exec)(`find ${p.replace(/\*.*$/, '')} -name chromium -type f 2>/dev/null | head -1`);
+          const found = stdout.trim();
+          if (found) {
+            chromiumPath = found;
+            break;
+          }
+        } else {
+          await fs.access(p);
+          chromiumPath = p;
+          break;
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  if (chromiumPath) {
+    logger.info({ chromiumPath }, "Using Chromium for Puppeteer");
+  } else {
+    logger.warn("Could not locate Chromium; Puppeteer will attempt to use its bundled version");
   }
 
   const browser = await puppeteer.launch({
     headless: true,
-    executablePath: chromiumPath, // if undefined, Puppeteer falls back to its bundled version
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    executablePath: chromiumPath,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-software-rasterizer",
+    ],
   });
+
   job.browser = browser;
   const page = await browser.newPage();
   page.setDefaultNavigationTimeout(NAV_TIMEOUT_MS);
