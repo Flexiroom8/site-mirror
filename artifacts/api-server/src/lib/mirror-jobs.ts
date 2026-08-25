@@ -26,6 +26,10 @@ export type MirrorJobRecord = {
   maxPages: number;
   requestDelayMs: number;
   respectRobotsTxt: boolean;
+  maxDepth: number;
+  includeAssets: boolean;
+  pathPrefix: string;
+  excludePaths: string[];
   currentUrl: string | null;
   message: string | null;
   createdAt: Date;
@@ -116,6 +120,10 @@ function publicJob(job: MirrorJobRecord) {
     maxPages: job.maxPages,
     requestDelayMs: job.requestDelayMs,
     respectRobotsTxt: job.respectRobotsTxt,
+    maxDepth: job.maxDepth,
+    includeAssets: job.includeAssets,
+    pathPrefix: job.pathPrefix,
+    excludePaths: job.excludePaths,
     currentUrl: job.currentUrl,
     message: job.message,
     createdAt: job.createdAt,
@@ -138,6 +146,22 @@ function filePathForUrl(rawUrl: string): string {
 
 function sameOrigin(candidate: URL, origin: URL): boolean {
   return candidate.origin === origin.origin;
+}
+
+function normalizePathPrefix(value: string): string {
+  const normalized = value.trim().replace(/\\/g, "/");
+  if (!normalized || normalized === "/") return "/";
+  return `/${normalized.replace(/^\/+|\/+$/g, "")}`;
+}
+
+function pathMatchesPrefix(candidatePath: string, prefix: string): boolean {
+  return prefix === "/" || candidatePath === prefix || candidatePath.startsWith(`${prefix}/`);
+}
+
+function withinScope(candidate: URL, origin: URL, job: MirrorJobRecord): boolean {
+  if (!sameOrigin(candidate, origin)) return false;
+  if (!pathMatchesPrefix(candidate.pathname, job.pathPrefix)) return false;
+  return !job.excludePaths.some((excluded) => pathMatchesPrefix(candidate.pathname, excluded));
 }
 
 function shouldSaveResource(url: URL): boolean {
@@ -223,7 +247,8 @@ async function downloadAsset(
 async function runJob(job: MirrorJobRecord): Promise<void> {
   const origin = await assertSafePublicUrl(job.url);
   const robots = job.respectRobotsTxt ? await loadRobots(origin) : new Set<string>();
-  const queue = [origin.href];
+  const queue: Array<{ url: string; depth: number }> = [{ url: origin.href, depth: 0 }];
+  const queuedUrls = new Set([origin.href]);
   const seen = new Set<string>();
   const browser = await puppeteer.launch({
     headless: true,
@@ -241,10 +266,11 @@ async function runJob(job: MirrorJobRecord): Promise<void> {
         return;
       }
 
-      const current = queue.shift()!;
+      const queueEntry = queue.shift()!;
+      const current = queueEntry.url;
       if (seen.has(current)) continue;
       const currentUrl = new URL(current);
-      if (!sameOrigin(currentUrl, origin) || blockedByRobots(currentUrl, origin, robots)) {
+      if (!withinScope(currentUrl, origin, job) || blockedByRobots(currentUrl, origin, robots)) {
         continue;
       }
       seen.add(current);
@@ -308,26 +334,32 @@ async function runJob(job: MirrorJobRecord): Promise<void> {
         const internalPages = normalizedLinks.filter((value) => {
           try {
             const parsed = new URL(value);
-            return sameOrigin(parsed, origin);
+            return withinScope(parsed, origin, job);
           } catch {
             return false;
           }
         });
         for (const pageUrl of internalPages) {
-          if (!seen.has(pageUrl) && !queue.includes(pageUrl) && queue.length < job.maxPages * 2) {
-            queue.push(pageUrl);
+          if (
+            queueEntry.depth < job.maxDepth &&
+            !seen.has(pageUrl) &&
+            !queuedUrls.has(pageUrl) &&
+            queue.length < job.maxPages * 2
+          ) {
+            queue.push({ url: pageUrl, depth: queueEntry.depth + 1 });
+            queuedUrls.add(pageUrl);
           }
         }
         job.pagesFound = Math.max(job.pagesFound, seen.size + queue.length);
 
-        const assetUrls = normalizedAssets.filter((value) => {
+        const assetUrls = job.includeAssets ? normalizedAssets.filter((value) => {
           try {
             const parsed = new URL(value);
-            return sameOrigin(parsed, origin) && shouldSaveResource(parsed);
+            return withinScope(parsed, origin, job) && shouldSaveResource(parsed);
           } catch {
             return false;
           }
-        });
+        }) : [];
         for (const assetUrl of assetUrls) {
           if (job.cancelRequested) break;
           try {
@@ -362,6 +394,10 @@ export async function createMirrorJob(input: {
   maxPages?: number;
   requestDelayMs?: number;
   respectRobotsTxt?: boolean;
+  maxDepth?: number;
+  includeAssets?: boolean;
+  pathPrefix?: string;
+  excludePaths?: string[];
 }): Promise<MirrorJobRecord> {
   const safeUrl = await assertSafePublicUrl(input.url);
   const id = randomUUID();
@@ -375,9 +411,13 @@ export async function createMirrorJob(input: {
     pagesDownloaded: 0,
     assetsDownloaded: 0,
     bytesDownloaded: 0,
-    maxPages: input.maxPages ?? 25,
+    maxPages: input.maxPages ?? 100,
     requestDelayMs: input.requestDelayMs ?? 250,
     respectRobotsTxt: input.respectRobotsTxt ?? true,
+    maxDepth: input.maxDepth ?? 3,
+    includeAssets: input.includeAssets ?? true,
+    pathPrefix: normalizePathPrefix(input.pathPrefix ?? "/"),
+    excludePaths: (input.excludePaths ?? []).map(normalizePathPrefix),
     currentUrl: null,
     message: "Waiting to start.",
     createdAt: new Date(),
