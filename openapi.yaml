@@ -3,10 +3,8 @@ info:
   title: Site Mirror API
   version: 1.0.0
   description: Same‑origin website archiving tool
-
 servers:
   - url: http://localhost:3000
-
 paths:
   /mirror/jobs:
     post:
@@ -49,7 +47,6 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/MirrorJob'
-
   /mirror/jobs/{id}:
     get:
       summary: Get a single job
@@ -68,7 +65,6 @@ paths:
                 $ref: '#/components/schemas/MirrorJob'
         '404':
           description: Job not found
-
     delete:
       summary: Cancel a job
       parameters:
@@ -86,7 +82,6 @@ paths:
                 $ref: '#/components/schemas/MirrorJob'
         '404':
           description: Job not found
-
   /mirror/jobs/{id}/zip:
     get:
       summary: Download the mirror archive
@@ -105,7 +100,6 @@ paths:
           description: Job not found
         '409':
           description: Mirror not completed
-
 components:
   schemas:
     MirrorJobInput:
@@ -157,7 +151,6 @@ components:
           maximum: 2147483648
           default: 524288000
           description: Maximum total bytes to download
-
     MirrorJob:
       type: object
       required:
