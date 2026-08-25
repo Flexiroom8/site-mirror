@@ -5,6 +5,8 @@ import path from "node:path";
 import { lookup } from "node:dns/promises";
 import net from "node:net";
 import { URL } from "node:url";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
 import puppeteer, { type Browser, type HTTPRequest, type Page } from "puppeteer";
 import archiver from "archiver";
 import { logger } from "./logger.js";
@@ -426,8 +428,20 @@ async function runJob(job: MirrorJobRecord): Promise<void> {
   const queue: Array<{ url: string; depth: number }> = [{ url: origin.href, depth: 0 }];
   const queuedUrls = new Set([origin.href]);
   const seen = new Set<string>();
+
+  // ---- Find Chromium on Replit ----
+  let chromiumPath: string | undefined;
+  try {
+    const { stdout } = await promisify(exec)("which chromium");
+    chromiumPath = stdout.trim();
+    if (chromiumPath) logger.debug({ chromiumPath }, "Using Chromium from system path");
+  } catch {
+    logger.warn("Could not locate chromium via `which chromium`; Puppeteer will try its own download.");
+  }
+
   const browser = await puppeteer.launch({
     headless: true,
+    executablePath: chromiumPath, // if undefined, Puppeteer falls back to its bundled version
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
   });
   job.browser = browser;
