@@ -4,12 +4,13 @@ Site Mirror creates downloadable, same-origin website archives for sites the use
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-server run dev` — run the API server (port 3000)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
+- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the canonical OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
+- Optional env: `PORT` — server port (defaults to 3000)
 
 ## Stack
 
@@ -25,7 +26,7 @@ Site Mirror creates downloadable, same-origin website archives for sites the use
 - `artifacts/site-mirror/` — React interface for creating and monitoring mirror jobs
 - `artifacts/api-server/src/lib/mirror-jobs.ts` — crawl, progress, cancellation, and ZIP archive service
 - `artifacts/api-server/src/routes/mirror.ts` — mirror job API routes
-- `lib/api-spec/openapi.yaml` — source of truth for the mirror API contract
+- `lib/api-spec/openapi.yaml` — canonical source-of-truth for the mirror API contract (use this for codegen)
 - `lib/api-client-react/` and `lib/api-zod/` — generated client hooks and validation schemas
 
 ## Architecture decisions
