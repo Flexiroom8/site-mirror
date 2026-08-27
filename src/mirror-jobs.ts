@@ -77,6 +77,11 @@ const MAX_ASSET_BYTES = envNumber("MIRROR_MAX_ASSET_BYTES", 50 * 1024 * 1024);
 const JOB_RETENTION_MS = envNumber("MIRROR_JOB_RETENTION_MS", 6 * 60 * 60 * 1000);
 const DNS_CACHE_TTL_MS = 5 * 60 * 1000;
 
+// New safety caps
+const MAX_PENDING_JOB_QUEUE_LENGTH = envNumber("MIRROR_MAX_PENDING_QUEUE_LENGTH", 1000);
+const MAX_QUEUED_URLS_PER_JOB = envNumber("MIRROR_MAX_QUEUED_URLS_PER_JOB", 10000);
+const MAX_INTERNAL_QUEUE_MULTIPLIER = envNumber("MIRROR_INTERNAL_QUEUE_MULTIPLIER", 2);
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
@@ -208,7 +213,7 @@ function sameOrigin(candidate: URL, origin: URL): boolean {
 function normalizePathPrefix(value: string): string {
   const normalized = value.trim().replace(/\\/g, "/");
   if (!normalized || normalized === "/") return "/";
-  return `/${normalized.replace(/^\/+|\/+$/g, "")}`;
+  return `/${normalized.replace(/^\/+/g, "").replace(/\/+$/g, "")}`;
 }
 
 function pathMatchesPrefix(candidatePath: string, prefix: string): boolean {
@@ -435,9 +440,9 @@ async function runJob(job: MirrorJobRecord): Promise<void> {
   try {
     // Try `which chromium` first
     const { stdout } = await promisify(exec)("which chromium 2>/dev/null || which chromium-browser 2>/dev/null || true");
-    const path = stdout.trim();
-    if (path) {
-      chromiumPath = path;
+    const pathOut = stdout.trim();
+    if (pathOut) {
+      chromiumPath = pathOut;
       logger.info({ chromiumPath }, "Found Chromium via which command");
     }
   } catch (error) {
@@ -446,11 +451,7 @@ async function runJob(job: MirrorJobRecord): Promise<void> {
 
   // If not found, try common locations
   if (!chromiumPath) {
-    const commonPaths = [
-      '/usr/bin/chromium',
-      '/usr/bin/chromium-browser',
-      '/nix/store/*/bin/chromium',
-    ];
+    const commonPaths = ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/nix/store/*/bin/chromium'];
     for (const p of commonPaths) {
       try {
         // Use `find` to resolve wildcard paths
@@ -500,14 +501,17 @@ async function runJob(job: MirrorJobRecord): Promise<void> {
       if (job.cancelRequested) {
         job.status = "cancelled";
         job.message = "Mirror cancelled.";
+        logger.info({ jobId: job.id }, "Job cancelled by request");
         return;
       }
       if (job.startedAt && Date.now() - job.startedAt.getTime() > job.timeoutMs) {
         job.timedOut = true;
+        logger.info({ jobId: job.id }, "Job timed out");
         break;
       }
       if (job.bytesDownloaded >= job.maxTotalBytes) {
         job.sizeLimitReached = true;
+        logger.info({ jobId: job.id }, "Job size limit reached");
         break;
       }
 
@@ -587,10 +591,14 @@ async function runJob(job: MirrorJobRecord): Promise<void> {
             queueEntry.depth < job.maxDepth &&
             !seen.has(pageUrl) &&
             !queuedUrls.has(pageUrl) &&
-            queue.length < job.maxPages * 2
+            queue.length < job.maxPages * MAX_INTERNAL_QUEUE_MULTIPLIER &&
+            queuedUrls.size < MAX_QUEUED_URLS_PER_JOB
           ) {
             queue.push({ url: pageUrl, depth: queueEntry.depth + 1 });
             queuedUrls.add(pageUrl);
+          } else if (queuedUrls.size >= MAX_QUEUED_URLS_PER_JOB) {
+            job.message = `Queue cap (${MAX_QUEUED_URLS_PER_JOB}) reached; not queuing further URLs.`;
+            logger.warn({ jobId: job.id }, "Per-job queue cap reached; stopping URL discovery");
           }
         }
         job.pagesFound = Math.max(job.pagesFound, seen.size + queue.length);
@@ -637,12 +645,15 @@ async function runJob(job: MirrorJobRecord): Promise<void> {
       if (job.sizeLimitReached) reasons.push("size limit reached");
       const suffix = reasons.length ? ` (stopped early: ${reasons.join(", ")})` : "";
       job.message = `Saved ${job.pagesDownloaded} page${job.pagesDownloaded === 1 ? "" : "s"} and ${job.assetsDownloaded} asset${job.assetsDownloaded === 1 ? "" : "s"}.${suffix}`;
+      logger.info({ jobId: job.id, pages: job.pagesDownloaded, assets: job.assetsDownloaded }, "Job completed");
     }
   } finally {
     job.currentUrl = null;
     job.completedAt = new Date().toISOString();
     job.browser = null;
     await browser.close().catch(() => undefined);
+    // run a cleanup sweep immediately to enforce retention
+    void sweepFinishedJobs().catch(() => undefined);
   }
 }
 
@@ -667,11 +678,13 @@ async function runJobLifecycle(job: MirrorJobRecord): Promise<void> {
     job.status = "cancelled";
     job.message = "Cancelled before it started.";
     job.completedAt = new Date().toISOString();
+    logger.info({ jobId: job.id }, "Job cancelled before start");
     return;
   }
   job.status = "running";
   job.startedAt = new Date();
   job.message = "Crawling same-origin pages and assets.";
+  logger.info({ jobId: job.id, url: job.url }, "Job started");
   try {
     await runJob(job);
   } catch (error) {
@@ -687,6 +700,15 @@ async function runJobLifecycle(job: MirrorJobRecord): Promise<void> {
 }
 
 function scheduleJob(id: string): void {
+  const job = jobs.get(id);
+  if (!job) return;
+  if (pendingJobIds.length >= MAX_PENDING_JOB_QUEUE_LENGTH) {
+    job.status = "failed";
+    job.message = "Server overloaded: too many pending jobs.";
+    job.completedAt = new Date().toISOString();
+    logger.warn({ jobId: job.id }, "Rejected new job: pending queue full");
+    return;
+  }
   pendingJobIds.push(id);
   maybeStartNext();
 }
@@ -695,24 +717,53 @@ let cleanupTimer: NodeJS.Timeout | null = null;
 
 async function sweepFinishedJobs(): Promise<void> {
   const now = Date.now();
+  const resolvedRoot = path.resolve(tempRoot) + path.sep;
   for (const [id, job] of jobs) {
     const isFinished = job.status === "completed" || job.status === "failed" || job.status === "cancelled";
     if (!isFinished || !job.completedAt) continue;
     if (now - new Date(job.completedAt).getTime() < JOB_RETENTION_MS) continue;
-    await fs.rm(job.outputDir, { recursive: true, force: true }).catch(() => undefined);
-    jobs.delete(id);
+    try {
+      const resolved = path.resolve(job.outputDir) + path.sep;
+      if (!resolved.startsWith(resolvedRoot)) {
+        logger.warn({ jobId: id, outputDir: job.outputDir }, "Refusing to remove outputDir outside tempRoot");
+        jobs.delete(id);
+        continue;
+      }
+      await fs.rm(job.outputDir, { recursive: true, force: true }).catch(() => undefined);
+      jobs.delete(id);
+      logger.info({ jobId: id }, "Removed finished job and cleaned outputDir");
+    } catch (err) {
+      logger.debug({ err, jobId: id }, "Failed to sweep finished job");
+    }
   }
 }
 
 function scheduleCleanupSweep(): void {
   if (cleanupTimer) return;
-  const intervalMs = Math.min(JOB_RETENTION_MS, 30 * 60 * 1000);
+  const CLEANUP_INTERVAL_MS = Math.max(5 * 60 * 1000, Math.min(JOB_RETENTION_MS, 30 * 60 * 1000));
   cleanupTimer = setInterval(() => {
     void sweepFinishedJobs();
-  }, intervalMs);
+  }, CLEANUP_INTERVAL_MS);
   cleanupTimer.unref?.();
 }
+
 scheduleCleanupSweep();
+
+// Ensure tempRoot exists and perform an initial sweep on startup
+void (async () => {
+  try {
+    await fs.mkdir(tempRoot, { recursive: true });
+    logger.info({ tempRoot }, "Temporary job directory ready");
+  } catch (err) {
+    logger.error({ err, tempRoot }, "Unable to create temp root for mirror jobs");
+  }
+  // perform an initial sweep to tidy up old job outputs left over from previous runs
+  try {
+    await sweepFinishedJobs();
+  } catch (err) {
+    logger.debug({ err }, "Initial sweepFinishedJobs failed");
+  }
+})();
 
 export async function createMirrorJob(input: {
   url: string;
@@ -762,6 +813,7 @@ export async function createMirrorJob(input: {
     sizeLimitReached: false,
   };
   jobs.set(id, job);
+  logger.info({ jobId: id, url: job.url }, "Created mirror job");
   scheduleJob(id);
   return job;
 }
@@ -791,6 +843,7 @@ export async function cancelMirrorJob(id: string): Promise<MirrorJobRecord | und
       job.completedAt = new Date().toISOString();
     }
     await job.browser?.close().catch(() => undefined);
+    logger.info({ jobId: id }, "Cancel requested for job");
   }
   return job;
 }
@@ -814,5 +867,14 @@ export async function shutdownMirrorJobs(): Promise<void> {
     clearInterval(cleanupTimer);
     cleanupTimer = null;
   }
+  // stop accepting new pending jobs
+  pendingJobIds.length = 0;
+  // close browsers
   await Promise.all([...jobs.values()].map((job) => job.browser?.close().catch(() => undefined)));
+  // optionally remove very old outputs (best-effort)
+  try {
+    await sweepFinishedJobs();
+  } catch {
+    // ignore
+  }
 }
