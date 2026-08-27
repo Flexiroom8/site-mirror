@@ -1,19 +1,37 @@
-  - name: Use Node.js 24
-    uses: actions/setup-node@v4
-    with:
-      node-version: '24'
-      cache: 'pnpm'
+name: CI
 
-  - name: Install pnpm
-    run: |
-      corepack enable
-      corepack prepare pnpm@latest --activate
+on:
+  pull_request: {}
+  push:
+    branches:
+      - main
 
-  - name: Install dependencies
-    run: pnpm install --frozen-lockfile
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  - name: Typecheck workspace
-    run: pnpm run typecheck
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
 
-  - name: Build api-server
-    run: pnpm --filter @workspace/api-server run build
+      - name: Install pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck workspace
+        run: pnpm run typecheck
+
+      - name: Build api-server
+        run: pnpm --filter @workspace/api-server run build
